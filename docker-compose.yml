@@ -1,0 +1,26 @@
+services:
+  mumble:
+    image: mumblevoip/mumble-server:latest
+    container_name: mumble-server
+    restart: unless-stopped
+    ports:
+      - "64738:64738"
+      - "64738:64738/udp"
+    environment:
+      - MUMBLE_SUPW='superuser_password'
+      - MUMBLE_CONFIG_host=0.0.0.0
+      - MUMBLE_CONFIG_registerHostname=mumble.example.com
+      - MUMBLE_CONFIG_port=64738
+      - MUMBLE_CONFIG_welcometext=<b>Welcome to example.com!</b>
+      - MUMBLE_CONFIG_serverpassword=
+      - MUMBLE_CONFIG_registerName=Server Name
+      - MUMBLE_CONFIG_registerPassword=publicreg123
+      - MUMBLE_CONFIG_registerUrl=https://mumble.example.com
+      - MUMBLE_CONFIG_allowping=true
+      - TZ=UTC
+    volumes:
+      - mumble_data:/data
+
+volumes:
+  mumble_data:
+
