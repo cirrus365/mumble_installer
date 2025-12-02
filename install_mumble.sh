@@ -398,10 +398,37 @@ install_docker() {
         print_status "Docker installed successfully (running as root)"
     fi
     
+    # Enable and start Docker service
+    print_status "Enabling and starting Docker service..."
+    local systemctl_cmd="sudo systemctl"
+    if [[ "$ROOT_MODE" == "true" ]]; then
+        systemctl_cmd="systemctl"
+    fi
+    
+    # Enable Docker to start on boot
+    if ! $systemctl_cmd enable docker >/dev/null 2>&1; then
+        print_error "Failed to enable Docker service"
+        exit 1
+    fi
+    
+    # Start Docker service if not running
+    if ! $systemctl_cmd is-active --quiet docker; then
+        if ! $systemctl_cmd start docker >/dev/null 2>&1; then
+            print_error "Failed to start Docker service"
+            exit 1
+        fi
+    fi
+    
+    # Verify Docker is running
+    if ! $systemctl_cmd is-active --quiet docker; then
+        print_error "Docker service is not running after installation"
+        exit 1
+    fi
+    
     # Clean up
     rm -f /tmp/install-docker.sh
     
-    print_status "Docker installed successfully"
+    print_status "Docker installed and started successfully"
 }
 
 # Function to get Mumble configuration
@@ -420,17 +447,33 @@ get_mumble_config() {
     # Server Password (optional)
     SERVER_PASSWORD=$(get_input "Enter server password (leave empty for no password)" "" "" "")
     
-    # Register Hostname
-    REGISTER_HOSTNAME=$(get_input "Enter public registration hostname (e.g., mumble.example.com)" "" "" "")
-    
-    # Register Name
-    REGISTER_NAME=$(get_input "Enter public registration name" "$SERVER_NAME" "" "")
-    
-    # Register Password
-    REGISTER_PASSWORD=$(get_input "Enter registration password (leave empty if not required)" "" "" "")
-    
-    # Register URL
-    REGISTER_URL=$(get_input "Enter server website URL" "" "" "")
+    # Ask about public listing
+    echo
+    read -p "Do you want to list this server in the public Mumble server list? (y/N): " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        PUBLIC_LISTING=true
+        print_status "Server will be listed publicly"
+        
+        # Register Hostname
+        REGISTER_HOSTNAME=$(get_input "Enter public registration hostname (e.g., mumble.example.com)" "" "validate_not_empty" "Register Hostname")
+        
+        # Register Name
+        REGISTER_NAME=$(get_input "Enter public registration name" "$SERVER_NAME" "" "")
+        
+        # Register Password
+        REGISTER_PASSWORD=$(get_input "Enter registration password (leave empty if not required)" "" "" "")
+        
+        # Register URL
+        REGISTER_URL=$(get_input "Enter server website URL" "" "" "")
+    else
+        PUBLIC_LISTING=false
+        print_status "Server will be private (not listed publicly)"
+        REGISTER_HOSTNAME=""
+        REGISTER_NAME="$SERVER_NAME"
+        REGISTER_PASSWORD=""
+        REGISTER_URL=""
+    fi
     
     # Port
     PORT=$(get_input "Enter Mumble server port" "64738" "validate_port" "Port")
@@ -444,10 +487,15 @@ get_mumble_config() {
     echo "  Welcome Message: $WELCOME_TEXT"
     echo "  SuperUser Password: [AUTO-GENERATED]"
     echo "  Server Password: ${SERVER_PASSWORD:-[NONE]}"
-    echo "  Register Hostname: ${REGISTER_HOSTNAME:-[NONE]}"
-    echo "  Register Name: $REGISTER_NAME"
-    echo "  Register Password: ${REGISTER_PASSWORD:-[NONE]}"
-    echo "  Register URL: ${REGISTER_URL:-[NONE]}"
+    if [[ "$PUBLIC_LISTING" == "true" ]]; then
+        echo "  Public Listing: YES"
+        echo "  Register Hostname: $REGISTER_HOSTNAME"
+        echo "  Register Name: $REGISTER_NAME"
+        echo "  Register Password: ${REGISTER_PASSWORD:-[NONE]}"
+        echo "  Register URL: ${REGISTER_URL:-[NONE]}"
+    else
+        echo "  Public Listing: NO (Private Server)"
+    fi
     echo "  Port: $PORT"
     echo "  Timezone: $TIMEZONE"
     echo
@@ -474,10 +522,11 @@ update_compose_file() {
                 echo "      - MUMBLE_CONFIG_host=0.0.0.0" >> "$temp_file"
                 ;;
             *"MUMBLE_CONFIG_registerHostname="*)
-                if [[ -n "$REGISTER_HOSTNAME" ]]; then
+                if [[ "$PUBLIC_LISTING" == "true" && -n "$REGISTER_HOSTNAME" ]]; then
                     echo "      - MUMBLE_CONFIG_registerHostname=$REGISTER_HOSTNAME" >> "$temp_file"
                 else
-                    echo "$line" >> "$temp_file"
+                    # Remove registration config for private servers
+                    continue
                 fi
                 ;;
             *"MUMBLE_CONFIG_port="*)
@@ -490,20 +539,33 @@ update_compose_file() {
                 echo "      - MUMBLE_CONFIG_serverpassword=$SERVER_PASSWORD" >> "$temp_file"
                 ;;
             *"MUMBLE_CONFIG_registerName="*)
-                echo "      - MUMBLE_CONFIG_registerName=$REGISTER_NAME" >> "$temp_file"
+                if [[ "$PUBLIC_LISTING" == "true" ]]; then
+                    echo "      - MUMBLE_CONFIG_registerName=$REGISTER_NAME" >> "$temp_file"
+                else
+                    # Remove registration config for private servers
+                    continue
+                fi
                 ;;
             *"MUMBLE_CONFIG_registerPassword="*)
-                if [[ -n "$REGISTER_PASSWORD" ]]; then
-                    echo "      - MUMBLE_CONFIG_registerPassword=$REGISTER_PASSWORD" >> "$temp_file"
+                if [[ "$PUBLIC_LISTING" == "true" ]]; then
+                    if [[ -n "$REGISTER_PASSWORD" ]]; then
+                        echo "      - MUMBLE_CONFIG_registerPassword=$REGISTER_PASSWORD" >> "$temp_file"
+                    else
+                        echo "      - MUMBLE_CONFIG_registerPassword=" >> "$temp_file"
+                    fi
                 else
-                    echo "      - MUMBLE_CONFIG_registerPassword=" >> "$temp_file"
+                    # Remove registration config for private servers
+                    continue
                 fi
                 ;;
             *"MUMBLE_CONFIG_registerUrl="*)
-                if [[ -n "$REGISTER_URL" ]]; then
+                if [[ "$PUBLIC_LISTING" == "true" && -n "$REGISTER_URL" ]]; then
                     echo "      - MUMBLE_CONFIG_registerUrl=$REGISTER_URL" >> "$temp_file"
+                elif [[ "$PUBLIC_LISTING" == "true" ]]; then
+                    echo "      - MUMBLE_CONFIG_registerUrl=" >> "$temp_file"
                 else
-                    echo "$line" >> "$temp_file"
+                    # Remove registration config for private servers
+                    continue
                 fi
                 ;;
             *"MUMBLE_CONFIG_allowping="*)
