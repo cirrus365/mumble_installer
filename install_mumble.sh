@@ -31,17 +31,107 @@ print_header() {
     echo -e "${BLUE}=== $1 ===${NC}"
 }
 
-# Function to check if running as root
+# Function to check if running as root and handle user creation
 check_root() {
     if [[ $EUID -eq 0 ]]; then
-        print_error "This script should not be run as root for security reasons."
-        print_error "Please run as a regular user with sudo privileges."
+        print_warning "Script is running as root."
+        print_warning "For security reasons, we should create a normal user."
+        echo
+        
+        read -p "Do you want to create a new user for Mumble server management? (Y/n): " -n 1 -r
+        echo
+        if [[ $REPLY =~ ^[Nn]$ ]]; then
+            print_warning "Continuing as root is not recommended for security reasons."
+            read -p "Are you sure you want to continue as root? (y/N): " -n 1 -r
+            echo
+            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+                print_status "Please create a normal user and run this script as that user."
+                exit 0
+            fi
+            ROOT_MODE=true
+            return
+        fi
+        
+        create_user_and_sudo
+        print_status "User created successfully. Please run this script as the new user:"
+        echo "  su - $NEW_USERNAME"
+        echo "  cd $(pwd)"
+        echo "  ./install_mumble.sh"
+        exit 0
+    fi
+    ROOT_MODE=false
+}
+
+# Function to create user and configure sudo
+create_user_and_sudo() {
+    while true; do
+        read -p "Enter username for the new user: " NEW_USERNAME
+        if [[ -z "$NEW_USERNAME" ]]; then
+            print_error "Username cannot be empty."
+            continue
+        fi
+        
+        if id "$NEW_USERNAME" &>/dev/null; then
+            print_error "User '$NEW_USERNAME' already exists."
+            continue
+        fi
+        
+        if [[ "$NEW_USERNAME" == "root" ]]; then
+            print_error "Cannot create user named 'root'."
+            continue
+        fi
+        
+        break
+    done
+    
+    # Create user
+    print_status "Creating user '$NEW_USERNAME'..."
+    useradd -m -s /bin/bash "$NEW_USERNAME"
+    
+    # Set password for user
+    while true; do
+        read -s -p "Enter password for $NEW_USERNAME: " USER_PASSWORD
+        echo
+        read -s -p "Confirm password: " USER_PASSWORD_CONFIRM
+        echo
+        
+        if [[ "$USER_PASSWORD" != "$USER_PASSWORD_CONFIRM" ]]; then
+            print_error "Passwords do not match. Please try again."
+        elif [[ -z "$USER_PASSWORD" ]]; then
+            print_error "Password cannot be empty."
+        else
+            echo "$NEW_USERNAME:$USER_PASSWORD" | chpasswd
+            break
+        fi
+    done
+    
+    # Configure sudo
+    print_status "Configuring sudo access for $NEW_USERNAME..."
+    
+    # Sudo should already be installed by install_essential_packages
+    if ! command -v sudo >/dev/null 2>&1; then
+        print_error "Sudo not found after installation attempt"
         exit 1
     fi
+    
+    # Add user to sudo group
+    usermod -aG sudo "$NEW_USERNAME"
+    
+    # Ensure sudo group has sudo privileges
+    if [[ ! -f /etc/sudoers.d/sudo_group ]]; then
+        echo "%sudo ALL=(ALL:ALL) ALL" > /etc/sudoers.d/sudo_group
+        chmod 0440 /etc/sudoers.d/sudo_group
+    fi
+    
+    print_status "User '$NEW_USERNAME' created and added to sudo group."
 }
 
 # Function to check sudo access
 check_sudo() {
+    if [[ "$ROOT_MODE" == "true" ]]; then
+        return 0  # Already root, no need to check sudo
+    fi
+    
     if ! sudo -n true 2>/dev/null; then
         print_status "Checking sudo access..."
         if ! sudo -v; then
@@ -183,6 +273,45 @@ show_welcome() {
     read -p "Press Enter to continue or Ctrl+C to cancel..."
 }
 
+# Function to install essential packages
+install_essential_packages() {
+    print_header "Installing Essential Packages"
+    
+    # Determine package manager command based on whether we're root
+    local pkg_cmd="sudo apt-get"
+    if [[ "$ROOT_MODE" == "true" ]]; then
+        pkg_cmd="apt-get"
+    fi
+    
+    # Update package lists
+    print_status "Updating package lists..."
+    $pkg_cmd update >/dev/null 2>&1
+    
+    # Install essential packages
+    local packages="curl wget gnupg2 software-properties-common"
+    if [[ "$ROOT_MODE" != "true" ]]; then
+        packages="$packages sudo"
+    fi
+    
+    print_status "Installing essential packages: $packages"
+    if ! $pkg_cmd install -y $packages >/dev/null 2>&1; then
+        print_error "Failed to install essential packages"
+        exit 1
+    fi
+    
+    # Install UFW (firewall)
+    if ! command_exists ufw; then
+        print_status "Installing UFW firewall..."
+        if ! $pkg_cmd install -y ufw >/dev/null 2>&1; then
+            print_error "Failed to install UFW firewall"
+            exit 1
+        fi
+        print_status "UFW firewall installed successfully"
+    fi
+    
+    print_status "Essential packages installed successfully"
+}
+
 # Function to check prerequisites
 check_prerequisites() {
     print_header "Checking Prerequisites"
@@ -190,8 +319,13 @@ check_prerequisites() {
     # Check if running as root
     check_root
     
-    # Check sudo access
-    check_sudo
+    # Install essential packages first
+    install_essential_packages
+    
+    # Check sudo access (only if not root)
+    if [[ "$ROOT_MODE" != "true" ]]; then
+        check_sudo
+    fi
     
     # Check if docker-compose.yml exists
     if [[ ! -f "$COMPOSE_FILE" ]]; then
@@ -226,6 +360,18 @@ install_docker() {
         fi
     fi
     
+    # Determine package manager command based on whether we're root
+    local pkg_cmd="sudo apt-get"
+    if [[ "$ROOT_MODE" == "true" ]]; then
+        pkg_cmd="apt-get"
+    fi
+    
+    # Curl should already be installed by install_essential_packages
+    if ! command_exists curl; then
+        print_error "Curl not found after essential packages installation"
+        exit 1
+    fi
+    
     print_status "Downloading Docker installation script..."
     if ! curl -fsSL https://get.docker.com -o /tmp/install-docker.sh; then
         print_error "Failed to download Docker installation script"
@@ -233,20 +379,29 @@ install_docker() {
     fi
     
     print_status "Installing Docker..."
-    if ! sudo sh /tmp/install-docker.sh; then
+    local docker_cmd="sudo sh /tmp/install-docker.sh"
+    if [[ "$ROOT_MODE" == "true" ]]; then
+        docker_cmd="sh /tmp/install-docker.sh"
+    fi
+    
+    if ! $docker_cmd; then
         print_error "Docker installation failed"
         exit 1
     fi
     
     # Add current user to docker group
-    print_status "Adding current user to docker group..."
-    sudo usermod -aG docker "$USER"
+    if [[ "$ROOT_MODE" != "true" ]]; then
+        print_status "Adding current user to docker group..."
+        sudo usermod -aG docker "$USER"
+        print_warning "You may need to log out and log back in for group changes to take effect"
+    else
+        print_status "Docker installed successfully (running as root)"
+    fi
     
     # Clean up
     rm -f /tmp/install-docker.sh
     
     print_status "Docker installed successfully"
-    print_warning "You may need to log out and log back in for group changes to take effect"
 }
 
 # Function to get Mumble configuration
@@ -379,33 +534,40 @@ update_compose_file() {
 configure_firewall() {
     print_header "Configuring Firewall"
     
-    # Check if UFW is installed
+    # Determine package manager command based on whether we're root
+    local pkg_cmd="sudo apt-get"
+    local ufw_cmd="sudo ufw"
+    if [[ "$ROOT_MODE" == "true" ]]; then
+        pkg_cmd="apt-get"
+        ufw_cmd="ufw"
+    fi
+    
+    # UFW should already be installed by install_essential_packages
     if ! command_exists ufw; then
-        print_status "Installing UFW firewall..."
-        sudo apt-get update >/dev/null 2>&1
-        sudo apt-get install -y ufw >/dev/null 2>&1
+        print_error "UFW not found after essential packages installation"
+        exit 1
     fi
     
     # Configure UFW
     print_status "Configuring UFW firewall rules..."
     
     # Allow SSH
-    sudo ufw allow 22/tcp >/dev/null 2>&1
+    $ufw_cmd allow 22/tcp >/dev/null 2>&1
     print_status "Allowed SSH port 22"
     
     # Allow Mumble ports
-    sudo ufw allow "$PORT/tcp" >/dev/null 2>&1
-    sudo ufw allow "$PORT/udp" >/dev/null 2>&1
+    $ufw_cmd allow "$PORT/tcp" >/dev/null 2>&1
+    $ufw_cmd allow "$PORT/udp" >/dev/null 2>&1
     print_status "Allowed Mumble port $PORT (TCP/UDP)"
     
     # Enable UFW if not already enabled
-    if ! sudo ufw --force enable >/dev/null 2>&1; then
+    if ! $ufw_cmd --force enable >/dev/null 2>&1; then
         print_error "Failed to enable UFW firewall"
         exit 1
     fi
     
     # Reload UFW
-    sudo ufw reload >/dev/null 2>&1
+    $ufw_cmd reload >/dev/null 2>&1
     
     print_status "Firewall configured successfully"
 }
@@ -485,7 +647,11 @@ show_completion() {
     echo "  Restart server: docker-compose restart"
     echo
     echo "Firewall Status:"
-    sudo ufw status verbose
+    if [[ "$ROOT_MODE" == "true" ]]; then
+        ufw status verbose
+    else
+        sudo ufw status verbose
+    fi
     echo
     print_warning "Save the SuperUser password securely!"
     print_status "Enjoy your Mumble server!"
