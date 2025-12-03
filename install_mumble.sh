@@ -31,10 +31,52 @@ print_header() {
     echo -e "${BLUE}=== $1 ===${NC}"
 }
 
+# Function to configure Debian repositories
+configure_debian_repositories() {
+    if [[ "$distro_id" == "debian" && "$distro_version" == "13" ]]; then
+        print_status "Configuring Debian 13 repositories..."
+        
+        # Check if sources are properly configured
+        local sources_file="/etc/apt/sources.list.d/debian.sources"
+        local security_file="/etc/apt/sources.list.d/debian-security.sources"
+        
+        if [[ ! -f "$sources_file" ]] || 
+           ! grep -q "non-free-firmware" "$sources_file" 2>/dev/null; then
+            
+            print_status "Adding non-free-firmware repository (required for UFW)..."
+            
+            # Create proper Debian 13 sources
+            cat > "$sources_file" << 'EOF'
+Types: deb deb-src
+URIs: https://deb.debian.org/debian
+Suites: trixie trixie-updates
+Components: main contrib non-free non-free-firmware
+Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
+EOF
+            
+            # Add security repository
+            cat > "$security_file" << 'EOF'
+Types: deb deb-src
+URIs: https://security.debian.org/debian-security
+Suites: trixie-security
+Components: main contrib non-free non-free-firmware
+Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
+EOF
+            
+            # Update package lists
+            print_status "Updating package lists with new repositories..."
+            apt update
+        fi
+    fi
+}
+
 # Function to install essential packages (early version for root mode)
 install_essential_packages_early() {
     # Only run as root and only if packages are missing
     if [[ $EUID -eq 0 ]]; then
+        # Configure repositories first (especially for Debian 13)
+        configure_debian_repositories
+        
         # Update package lists with error handling
         if ! apt update; then
             print_error "Failed to update package lists"
@@ -44,7 +86,7 @@ install_essential_packages_early() {
         
         # Install essential packages that might be missing
         local packages="sudo"
-        if ! command -v sudo >/dev/null 2>&1; then
+        if ! is_package_installed "sudo"; then
             print_status "Installing sudo (required for user management)..."
             if ! apt install -y $packages; then
                 print_error "Failed to install sudo"
@@ -248,7 +290,58 @@ get_input() {
 
 # Function to check if command exists
 command_exists() {
-    command -v "$1" >/dev/null 2>&1
+    command -v "$@" >/dev/null 2>&1
+}
+
+# Function to check if package is installed (Debian/Ubuntu specific)
+is_package_installed() {
+    dpkg -l | grep -q "^ii  $1 "
+}
+
+# Function to verify package installation with multiple methods
+verify_package_installation() {
+    local package="$1"
+    local command="$2"
+    
+    # Method 1: Check dpkg database
+    if is_package_installed "$package"; then
+        return 0
+    fi
+    
+    # Method 2: Check if command exists
+    if command_exists "$command"; then
+        return 0
+    fi
+    
+    # Method 3: Check if package file exists
+    if [[ -f "/usr/bin/$command" ]] || [[ -f "/usr/sbin/$command" ]]; then
+        return 0
+    fi
+    
+    return 1
+}
+
+# Function to install package with verification
+install_package_with_verification() {
+    local package="$1"
+    local command="$2"
+    
+    print_status "Installing $package..."
+    
+    # Install with full output (no /dev/null)
+    if $pkg_cmd install -y "$package"; then
+        # Verify installation succeeded
+        if verify_package_installation "$package" "$command"; then
+            print_status "$package installed and verified successfully"
+            return 0
+        else
+            print_error "$package installation verification failed"
+            return 1
+        fi
+    else
+        print_error "$package installation failed"
+        return 1
+    fi
 }
 
 # Function to backup docker-compose.yml
@@ -310,14 +403,6 @@ install_essential_packages() {
         pkg_cmd="apt"
     fi
     
-    # Update package lists with error handling
-    print_status "Updating package lists..."
-    if ! $pkg_cmd update; then
-        print_error "Failed to update package lists"
-        print_error "Please check your internet connection and package repositories"
-        exit 1
-    fi
-    
     # Detect distribution and adjust package names
     local distro_id=""
     local distro_version=""
@@ -326,66 +411,50 @@ install_essential_packages() {
         distro_version=$(grep "^VERSION_ID=" /etc/os-release | cut -d'=' -f2 | tr -d '"' | cut -d'.' -f1)
     fi
     
+    # Configure repositories first (especially for Debian 13)
+    configure_debian_repositories
+    
+    # Update package lists with error handling
+    print_status "Updating package lists..."
+    if ! $pkg_cmd update; then
+        print_error "Failed to update package lists"
+        print_error "Please check your internet connection and package repositories"
+        exit 1
+    fi
+    
     # Install essential packages with distribution-specific adjustments
-    local packages="curl wget gnupg2"
-    if [[ "$ROOT_MODE" != "true" ]]; then
-        packages="$packages sudo"
-    fi
+    local packages=""
+    case "$distro_id" in
+        "debian")
+            packages="curl wget gnupg ca-certificates apt-transport-https ufw"
+            if [[ "$ROOT_MODE" != "true" ]]; then
+                packages="$packages sudo"
+            fi
+            ;;
+        "ubuntu")
+            packages="curl wget gnupg2 software-properties-common ca-certificates apt-transport-https ufw"
+            if [[ "$ROOT_MODE" != "true" ]]; then
+                packages="$packages sudo"
+            fi
+            ;;
+        *)
+            # Default/fallback
+            packages="curl wget gnupg software-properties-common ca-certificates apt-transport-https ufw"
+            if [[ "$ROOT_MODE" != "true" ]]; then
+                packages="$packages sudo"
+            fi
+            ;;
+    esac
     
-    # Distribution-specific package adjustments
-    if [[ "$distro_id" == "debian" ]]; then
-        # Debian-specific packages
-        packages="$packages gnupg"
-        # Add ca-certificates for HTTPS
-        packages="$packages ca-certificates"
-        # Add apt-transport-https for repository management
-        packages="$packages apt-transport-https"
-        # Add UFW firewall
-        packages="$packages ufw"
-    elif [[ "$distro_id" == "ubuntu" ]]; then
-        # Ubuntu-specific packages
-        packages="$packages software-properties-common"
-        packages="$packages ca-certificates"
-        packages="$packages apt-transport-https"
-        # Add UFW firewall
-        packages="$packages ufw"
-    else
-        # Default/fallback
-        packages="$packages software-properties-common ca-certificates apt-transport-https ufw"
-    fi
-    
-    print_status "Installing essential packages: $packages"
-    if ! $pkg_cmd install -y $packages; then
-        print_error "Failed to install essential packages"
-        print_error "Trying alternative package names..."
-        
-        # Try with alternative package names for different distributions
-        local alt_packages="curl wget gnupg"
-        if [[ "$ROOT_MODE" != "true" ]]; then
-            alt_packages="$alt_packages sudo"
-        fi
-        
-        print_status "Trying minimal essential packages: $alt_packages"
-        print_status "Trying minimal essential packages: $alt_packages"
-        if ! $pkg_cmd install -y $alt_packages; then
-            print_error "Failed to install minimal essential packages"
-            print_error "Please install packages manually and try again"
+    # Install each package with verification
+    for package in $packages; do
+        if ! install_package_with_verification "$package" "$package"; then
+            print_error "Failed to install $package"
             exit 1
         fi
-    fi
+    done
     
-    # Install UFW (firewall)
-    if ! command_exists ufw; then
-        print_status "Installing UFW firewall..."
-        if ! $pkg_cmd install -y ufw; then
-            print_warning "Failed to install UFW firewall, continuing without it"
-            print_warning "You may need to configure firewall manually"
-        else
-            print_status "UFW firewall installed successfully"
-        fi
-    fi
-    
-    print_status "Essential packages installed successfully"
+    print_status "All essential packages installed successfully"
 }
 
 # Function to check prerequisites
