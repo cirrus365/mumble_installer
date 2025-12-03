@@ -35,14 +35,18 @@ print_header() {
 install_essential_packages_early() {
     # Only run as root and only if packages are missing
     if [[ $EUID -eq 0 ]]; then
-        # Update package lists
-        apt-get update >/dev/null 2>&1
+        # Update package lists with error handling
+        if ! apt update; then
+            print_error "Failed to update package lists"
+            print_error "Please check your internet connection and package repositories"
+            exit 1
+        fi
         
         # Install essential packages that might be missing
         local packages="sudo"
         if ! command -v sudo >/dev/null 2>&1; then
             print_status "Installing sudo (required for user management)..."
-            if ! apt-get install -y $packages >/dev/null 2>&1; then
+            if ! apt install -y $packages; then
                 print_error "Failed to install sudo"
                 exit 1
             fi
@@ -301,35 +305,64 @@ install_essential_packages() {
     print_header "Installing Essential Packages"
     
     # Determine package manager command based on whether we're root
-    local pkg_cmd="sudo apt-get"
+    local pkg_cmd="sudo apt"
     if [[ "$ROOT_MODE" == "true" ]]; then
-        pkg_cmd="apt-get"
+        pkg_cmd="apt"
     fi
     
-    # Update package lists
+    # Update package lists with error handling
     print_status "Updating package lists..."
-    $pkg_cmd update >/dev/null 2>&1
+    if ! $pkg_cmd update; then
+        print_error "Failed to update package lists"
+        print_error "Please check your internet connection and package repositories"
+        exit 1
+    fi
     
-    # Install essential packages
+    # Detect distribution and adjust package names
+    local distro_id=""
+    if [[ -f /etc/os-release ]]; then
+        distro_id=$(grep "^ID=" /etc/os-release | cut -d'=' -f2 | tr -d '"')
+    fi
+    
+    # Install essential packages with distribution-specific adjustments
     local packages="curl wget gnupg2 software-properties-common"
     if [[ "$ROOT_MODE" != "true" ]]; then
         packages="$packages sudo"
     fi
     
+    # Adjust packages for Debian 13 (trixie)
+    if [[ "$distro_id" == "debian" ]]; then
+        # Replace gnupg2 with gnupg for newer Debian versions
+        packages=$(echo "$packages" | sed 's/gnupg2/gnupg/')
+    fi
+    
     print_status "Installing essential packages: $packages"
-    if ! $pkg_cmd install -y $packages >/dev/null 2>&1; then
+    if ! $pkg_cmd install -y $packages; then
         print_error "Failed to install essential packages"
-        exit 1
+        print_error "Trying alternative package names..."
+        
+        # Try with alternative package names for different distributions
+        local alt_packages="curl wget gnupg software-properties-common"
+        if [[ "$ROOT_MODE" != "true" ]]; then
+            alt_packages="$alt_packages sudo"
+        fi
+        
+        print_status "Trying alternative packages: $alt_packages"
+        if ! $pkg_cmd install -y $alt_packages; then
+            print_error "Failed to install essential packages with alternative names"
+            exit 1
+        fi
     fi
     
     # Install UFW (firewall)
     if ! command_exists ufw; then
         print_status "Installing UFW firewall..."
-        if ! $pkg_cmd install -y ufw >/dev/null 2>&1; then
-            print_error "Failed to install UFW firewall"
-            exit 1
+        if ! $pkg_cmd install -y ufw; then
+            print_warning "Failed to install UFW firewall, continuing without it"
+            print_warning "You may need to configure firewall manually"
+        else
+            print_status "UFW firewall installed successfully"
         fi
-        print_status "UFW firewall installed successfully"
     fi
     
     print_status "Essential packages installed successfully"
