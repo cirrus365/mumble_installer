@@ -63,16 +63,16 @@ After installation, you'll receive:
 
 ```bash
 # View logs
-docker-compose logs -f
+docker compose logs -f
 
 # Stop server
-docker-compose down
+docker compose down
 
 # Start server
-docker-compose up -d
+docker compose up -d
 
 # Restart server
-docker-compose restart
+docker compose restart
 ```
 
 ## Troubleshooting
