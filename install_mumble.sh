@@ -800,7 +800,7 @@ deploy_service() {
     
     # Start the service
     print_status "Starting Mumble server..."
-    if docker-compose up -d; then
+    if docker compose up -d; then
         print_status "Mumble server started successfully"
     else
         print_error "Failed to start Mumble server"
