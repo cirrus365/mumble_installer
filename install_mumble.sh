@@ -320,20 +320,34 @@ install_essential_packages() {
     
     # Detect distribution and adjust package names
     local distro_id=""
+    local distro_version=""
     if [[ -f /etc/os-release ]]; then
         distro_id=$(grep "^ID=" /etc/os-release | cut -d'=' -f2 | tr -d '"')
+        distro_version=$(grep "^VERSION_ID=" /etc/os-release | cut -d'=' -f2 | tr -d '"' | cut -d'.' -f1)
     fi
     
     # Install essential packages with distribution-specific adjustments
-    local packages="curl wget gnupg2 software-properties-common"
+    local packages="curl wget gnupg2"
     if [[ "$ROOT_MODE" != "true" ]]; then
         packages="$packages sudo"
     fi
     
-    # Adjust packages for Debian 13 (trixie)
+    # Distribution-specific package adjustments
     if [[ "$distro_id" == "debian" ]]; then
-        # Replace gnupg2 with gnupg for newer Debian versions
-        packages=$(echo "$packages" | sed 's/gnupg2/gnupg/')
+        # Debian-specific packages
+        packages="$packages gnupg"
+        # Add ca-certificates for HTTPS
+        packages="$packages ca-certificates"
+        # Add apt-transport-https for repository management
+        packages="$packages apt-transport-https"
+    elif [[ "$distro_id" == "ubuntu" ]]; then
+        # Ubuntu-specific packages
+        packages="$packages software-properties-common"
+        packages="$packages ca-certificates"
+        packages="$packages apt-transport-https"
+    else
+        # Default/fallback
+        packages="$packages software-properties-common ca-certificates apt-transport-https"
     fi
     
     print_status "Installing essential packages: $packages"
@@ -342,14 +356,16 @@ install_essential_packages() {
         print_error "Trying alternative package names..."
         
         # Try with alternative package names for different distributions
-        local alt_packages="curl wget gnupg software-properties-common"
+        local alt_packages="curl wget gnupg"
         if [[ "$ROOT_MODE" != "true" ]]; then
             alt_packages="$alt_packages sudo"
         fi
         
-        print_status "Trying alternative packages: $alt_packages"
+        print_status "Trying minimal essential packages: $alt_packages"
+        print_status "Trying minimal essential packages: $alt_packages"
         if ! $pkg_cmd install -y $alt_packages; then
-            print_error "Failed to install essential packages with alternative names"
+            print_error "Failed to install minimal essential packages"
+            print_error "Please install packages manually and try again"
             exit 1
         fi
     fi
