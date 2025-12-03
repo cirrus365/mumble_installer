@@ -1,0 +1,319 @@
+# =============================================================================
+# Mumble Server Configuration Template
+# =============================================================================
+# This is a comprehensive template for /etc/mumble-server.ini
+# Copy this file to /etc/mumble-server.ini and customize as needed
+# =============================================================================
+# 
+# QUICK START GUIDE:
+# 1. Set your server name and welcome message
+# 2. Configure user limits and bandwidth
+# 3. Set server password if desired
+# 4. Review SSL certificate settings
+# 5. Restart mumble-server service
+#
+# For more details: https://wiki.mumble.info/wiki/Murmur.ini
+# =============================================================================
+
+# =============================================================================
+# DATABASE CONFIGURATION
+# =============================================================================
+# Database file location (SQLite - default)
+# Leave blank to use default location or create automatically
+database=
+
+# Database driver options:
+# sqlite (default), mysql, postgresql
+#dbDriver=postgresql
+
+# MySQL/PostgreSQL connection settings (uncomment if using dbDriver=mysql/postgresql)
+#dbUsername=
+#dbPassword=
+#dbHost=
+#dbPort=
+
+# SQLite Write-Ahead Logging (WAL) - improves performance for busy servers
+# 0 = Use default rollback journal
+# 2 = Use WAL with full synchronization (recommended for production)
+#sqlite_wal=2
+
+# =============================================================================
+# NETWORK & ICE CONFIGURATION
+# =============================================================================
+# ICE endpoint for remote administration (optional)
+# Comment out if not using remote administration
+#ice="tcp -h 127.0.0.1 -p 6502"
+
+# ICE secrets for read/write access (recommended for security)
+# Generate strong passwords for production use
+#icesecretread="your_read_secret_here"
+#icesecretwrite="your_write_secret_here"
+
+# =============================================================================
+# LOGGING CONFIGURATION
+# =============================================================================
+# Log file location
+# Leave blank to log to console (foreground mode)
+logfile=/var/log/mumble-server/mumble-server.log
+
+# PID file location (Unix-like systems only)
+pidfile=/var/run/mumble-server/mumble-server.pid
+
+# =============================================================================
+# SERVER IDENTITY & WELCOME
+# =============================================================================
+# Server name (appears in client connection dialogs)
+registerName=My Mumble Server
+
+# Welcome message sent to clients when they connect
+# HTML tags are supported if allowhtml=true
+welcometext="<br />Welcome to <b>My Mumble Server</b>!<br />Enjoy your stay!<br />"
+
+# Alternative: Load welcome message from external file
+#welcometextfile=/etc/mumble-server-welcome.txt
+
+# =============================================================================
+# NETWORK SETTINGS
+# =============================================================================
+# Server port (TCP and UDP)
+port=64738
+
+# Bind to specific IP address (leave blank to bind to all addresses)
+#host=192.168.1.100
+
+# Server password (leave blank for public server)
+serverpassword=
+
+# Maximum bandwidth per client in bits per second
+# 558000 = ~72KB/s (good quality voice)
+# 72000 = ~9KB/s (minimum quality)
+bandwidth=558000
+
+# Client timeout in seconds (disconnects unresponsive clients)
+timeout=30
+
+# Maximum concurrent users
+users=100
+
+# Maximum users per channel (0 = unlimited)
+usersperchannel=0
+
+# =============================================================================
+# SECURITY & AUTHENTICATION
+# =============================================================================
+# Require SSL certificates for client connections
+certrequired=false
+
+# Obfuscate IP addresses in logs (privacy protection)
+obfuscate=false
+
+# Send server version information to clients
+sendversion=true
+
+# SSL Certificate configuration
+# Leave blank to auto-generate self-signed certificate
+#sslCert=/etc/ssl/certs/mumble-server.pem
+#sslKey=/etc/ssl/private/mumble-server.key
+
+# SSL key passphrase (if key file is encrypted)
+#sslPassPhrase=
+
+# SSL Certificate Authority bundle (for intermediate certificates)
+#sslCA=
+
+# Diffie-Hellman parameters for SSL
+# @ffdhe2048 (default), @ffdhe3072, @ffdhe4096, @ffdhe6144, @ffdhe8192
+#sslDHParams=@ffdhe2048
+
+# SSL Cipher suites (OpenSSL cipher list format)
+#sslCiphers=EECDH+AESGCM:EDH+aRSA+AESGCM:DHE-RSA-AES256-SHA:DHE-RSA-AES128-SHA:AES256-SHA:AES128-SHA
+
+# =============================================================================
+# USER EXPERIENCE FEATURES
+# =============================================================================
+# Allow HTML in messages, comments, and descriptions
+allowhtml=true
+
+# Respond to UDP ping packets (shows user count in server list)
+allowping=true
+
+# Opus codec threshold (0 = always use Opus, 100 = only if all clients support)
+opusthreshold=0
+
+# Maximum channel nesting depth
+channelnestinglimit=10
+
+# Maximum number of channels (0 = unlimited)
+channelcountlimit=1000
+
+# Channel name validation (regular expression)
+#channelname=[ \\-=\\w\\#\\[\\]\\{\\}\\(\\)\\@\\|]+
+
+# Username validation (regular expression)
+#username=[-=\\w\\[\\]\\{\\}\\(\\)\\@\\|\\.]+
+
+# Default channel for new users (numeric channel ID, 0 = root channel)
+defaultchannel=0
+
+# Remember user's last channel on reconnect
+rememberchannel=true
+
+# How long to remember last channel (0 = forever, in seconds)
+rememberchannelduration=0
+
+# =============================================================================
+# TEXT MESSAGING LIMITS
+# =============================================================================
+# Maximum text message length (0 = unlimited)
+textmessagelength=5000
+
+# Maximum image message length (0 = unlimited)
+imagemessagelength=1048576
+
+# =============================================================================
+# RATE LIMITING & ANTI-ABUSE
+# =============================================================================
+# Message rate limiting (prevents spam)
+messageburst=5
+messagelimit=1
+
+# Plugin message rate limiting
+pluginmessagelimit=1
+pluginmessageburst=5
+
+# Auto-ban configuration (prevents connection flooding)
+#autobanAttempts=10
+#autobanTimeframe=120
+#autobanTime=300
+#autobanSuccessfulConnections=true
+
+# =============================================================================
+# CHANNEL LISTENERS (Advanced Feature)
+# =============================================================================
+# Maximum listeners per channel (-1 = unlimited)
+listenersperchannel=5
+
+# Maximum listeners per user (-1 = unlimited)
+listenersperuser=2
+
+# =============================================================================
+# RECORDING CONTROLS
+# =============================================================================
+# Allow clients to use built-in recording function
+allowRecording=true
+
+# =============================================================================
+# CLIENT RECOMMENDATIONS
+# =============================================================================
+# Recommend minimum client version (format: X.X.X)
+#suggestVersion=1.4.0
+
+# Recommend positional audio (true/false/blank)
+#suggestPositional=true
+
+# Recommend push-to-talk (true/false/blank)
+#suggestPushToTalk=true
+
+# =============================================================================
+# PUBLIC SERVER REGISTRATION
+# =============================================================================
+# Register server with public Mumble server list
+# Requires serverpassword to be blank
+#registerPassword=your_registration_password
+#registerUrl=https://your-website.com
+#registerHostname=your-server.domain.com
+#registerLocation=US
+
+# Enable Bonjour service discovery
+#bonjour=true
+
+# =============================================================================
+# LOGGING & MONITORING
+# =============================================================================
+# Days to keep log entries in database (0 = forever, -1 = disable)
+logdays=31
+
+# Enable logging of group changes
+loggroupchanges=false
+
+# Enable logging of ACL changes
+logaclchanges=false
+
+# Rolling packet stats window in seconds (0 = disable, minimum = 10)
+rollingStatsWindow=300
+
+# =============================================================================
+# ADVANCED CONFIGURATION
+# =============================================================================
+# User to run as when started as root
+#uname=mumble-server
+
+# Force external authentication
+#forceExternalAuth=false
+
+# Legacy password hash (insecure, only use if absolutely necessary)
+#legacypasswordhash=false
+
+# PBKDF2 iterations override (-1 = auto-benchmark, >0 = force specific)
+#kdfiterations=-1
+
+# =============================================================================
+# ICE CONFIGURATION SECTION
+# =============================================================================
+# This section must be last in the configuration file
+# These are advanced ICE settings - leave defaults unless you know what you're doing
+[Ice]
+Ice.Warn.UnknownProperties=1
+Ice.MessageSizeMax=65536
+
+# =============================================================================
+# COMMON CONFIGURATION EXAMPLES
+# =============================================================================
+# 
+# SMALL PRIVATE SERVER (5-10 users):
+#   users=10
+#   bandwidth=72000
+#   serverpassword="your_password"
+#   registerName="Private Family Server"
+#
+# MEDIUM COMMUNITY SERVER (50-100 users):
+#   users=100
+#   bandwidth=558000
+#   registerName="Gaming Community"
+#   welcometext="<br />Welcome to our gaming community!<br />Rules: Be respectful, no spamming.<br />"
+#
+# LARGE PUBLIC SERVER (200+ users):
+#   users=250
+#   bandwidth=720000
+#   sqlite_wal=2
+#   logdays=7
+#   autobanAttempts=5
+#   autobanTimeframe=60
+#
+# SECURE CORPORATE SERVER:
+#   certrequired=true
+#   serverpassword="strong_password"
+#   obfuscate=true
+#   allowRecording=false
+#   certrequired=true
+#   sslCert=/etc/ssl/certs/corporate-mumble.pem
+#   sslKey=/etc/ssl/private/corporate-mumble.key
+#
+# =============================================================================
+
+# =============================================================================
+# POST-INSTALLATION CHECKLIST
+# =============================================================================
+# 
+# □ Set registerName to your server name
+# □ Configure users limit based on your server capacity
+# □ Set serverpassword for private servers
+# □ Review bandwidth settings for your network
+# □ Configure SSL certificates for production use
+# □ Set up log rotation for logfile
+# □ Test connection with Mumble client
+# □ Verify firewall allows port 64738 TCP/UDP
+# □ Consider backup strategy for database
+# □ Review security settings (certrequired, obfuscate)
+#
+# =============================================================================
