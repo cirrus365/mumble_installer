@@ -502,59 +502,111 @@ check_prerequisites() {
     print_status "Prerequisites check passed"
 }
 
-# Function to install Docker
-install_docker() {
-    print_header "Installing Docker"
+# Function to test network connectivity
+test_connectivity() {
+    print_status "Testing network connectivity..."
     
-    if command_exists docker; then
-        print_warning "Docker is already installed."
-        read -p "Do you want to reinstall/upgrade Docker? (y/N): " -n 1 -r
-        echo
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            print_status "Skipping Docker installation"
-            return
-        fi
+    # Test basic connectivity
+    if ! ping -c 1 8.8.8.8 >/dev/null 2>&1; then
+        print_warning "Cannot reach Google DNS (8.8.8.8)"
+        return 1
     fi
     
-    # Determine package manager command based on whether we're root
-    local pkg_cmd="sudo apt-get"
-    if [[ "$ROOT_MODE" == "true" ]]; then
-        pkg_cmd="apt-get"
+    # Test DNS resolution
+    if ! nslookup get.docker.com >/dev/null 2>&1; then
+        print_warning "Cannot resolve get.docker.com"
+        return 1
     fi
     
-    # Curl should already be installed by install_essential_packages
-    if ! command_exists curl; then
-        print_error "Curl not found after essential packages installation"
-        exit 1
+    # Test HTTPS connection
+    if ! curl -I --connect-timeout 10 https://get.docker.com >/dev/null 2>&1; then
+        print_warning "Cannot establish HTTPS connection to get.docker.com"
+        return 1
     fi
     
-    print_status "Downloading Docker installation script..."
-    if ! curl -fsSL https://get.docker.com -o /tmp/install-docker.sh; then
-        print_error "Failed to download Docker installation script"
-        exit 1
+    return 0
+}
+
+# Function to diagnose SSL/TLS issues
+diagnose_ssl_issues() {
+    print_status "Diagnosing SSL/TLS configuration..."
+    
+    # Check curl version
+    local curl_version=$(curl --version | head -1)
+    print_status "curl version: $curl_version"
+    
+    # Check SSL library
+    local ssl_lib=$(curl -V 2>&1 | grep "SSL Version" || echo "Unknown")
+    print_status "SSL library: $ssl_lib"
+    
+    # Test with different SSL options
+    print_status "Testing with different SSL options..."
+    
+    # Try with TLS 1.2 only
+    if curl --tlsv1.2 -I https://get.docker.com >/dev/null 2>&1; then
+        print_status "TLS 1.2 connection successful"
+        return 0
     fi
     
-    print_status "Installing Docker..."
-    local docker_cmd="sudo sh /tmp/install-docker.sh"
-    if [[ "$ROOT_MODE" == "true" ]]; then
-        docker_cmd="sh /tmp/install-docker.sh"
+    # Try with insecure option (last resort)
+    if curl -k -I https://get.docker.com >/dev/null 2>&1; then
+        print_warning "Insecure connection works - SSL certificate issue"
+        return 2
     fi
     
-    if ! $docker_cmd; then
-        print_error "Docker installation failed"
-        exit 1
+    return 1
+}
+
+# Function to detect proxy settings
+detect_proxy() {
+    # Check for common proxy variables
+    if [[ -n "$http_proxy" || -n "$https_proxy" || -n "$HTTP_PROXY" || -n "$HTTPS_PROXY" ]]; then
+        print_status "Proxy configuration detected"
+        [[ -n "$HTTP_PROXY" ]] && print_status "HTTP_PROXY: $HTTP_PROXY"
+        [[ -n "$HTTPS_PROXY" ]] && print_status "HTTPS_PROXY: $HTTPS_PROXY"
+        return 0
     fi
     
-    # Add current user to docker group
-    if [[ "$ROOT_MODE" != "true" ]]; then
-        print_status "Adding current user to docker group..."
-        sudo usermod -aG docker "$USER"
-        print_warning "You may need to log out and log back in for group changes to take effect"
+    return 1
+}
+
+# Function to update SSL certificates
+update_ssl_certificates() {
+    print_status "Updating SSL certificates..."
+    
+    # Update ca-certificates
+    if $pkg_cmd update ca-certificates >/dev/null 2>&1; then
+        print_status "SSL certificates updated"
     else
-        print_status "Docker installed successfully (running as root)"
+        print_warning "Failed to update SSL certificates"
     fi
+}
+
+# Function to download Docker installer with fallback methods
+download_docker_installer() {
+    local methods=(
+        "curl -fsSL https://get.docker.com"
+        "wget --no-check-certificate https://get.docker.com"
+        "curl -k -fsSL https://get.docker.com"
+        "curl -1 --tlsv1.2 https://get.docker.com"
+    )
     
-    # Enable and start Docker service
+    for method in "${methods[@]}"; do
+        print_status "Trying: $method"
+        
+        if eval "$method -o /tmp/install-docker.sh"; then
+            print_status "Download successful using: $method"
+            return 0
+        else
+            print_warning "Download failed with: $method"
+        fi
+    done
+    
+    return 1
+}
+
+# Function to manage Docker service
+manage_docker_service() {
     print_status "Enabling and starting Docker service..."
     local systemctl_cmd="sudo systemctl"
     if [[ "$ROOT_MODE" == "true" ]]; then
@@ -580,11 +632,82 @@ install_docker() {
         print_error "Docker service is not running after installation"
         exit 1
     fi
+}
+
+# Function to install Docker with enhanced error handling
+install_docker() {
+    print_header "Installing Docker"
+    
+    if command_exists docker; then
+        print_warning "Docker is already installed."
+        read -p "Do you want to reinstall/upgrade Docker? (y/N): " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            print_status "Skipping Docker installation"
+            return
+        fi
+    fi
+    
+    # Curl should already be installed by install_essential_packages
+    if ! command_exists curl; then
+        print_error "Curl not found after essential packages installation"
+        exit 1
+    fi
+    
+    # Pre-installation checks
+    test_connectivity
+    local connectivity_result=$?
+    
+    diagnose_ssl_issues
+    local ssl_result=$?
+    
+    detect_proxy
+    
+    # Update SSL certificates if needed
+    update_ssl_certificates
+    
+    # Download installer with fallback methods
+    if ! download_docker_installer; then
+        print_error "All download methods failed"
+        print_error "Please check:"
+        print_error "1. Internet connection"
+        print_error "2. Firewall/proxy settings"
+        print_error "3. SSL certificate issues"
+        print_error "4. Try downloading manually: https://get.docker.com"
+        exit 1
+    fi
+    
+    # Install Docker with error handling
+    print_status "Installing Docker..."
+    local docker_cmd="sudo sh /tmp/install-docker.sh"
+    if [[ "$ROOT_MODE" == "true" ]]; then
+        docker_cmd="sh /tmp/install-docker.sh"
+    fi
+    
+    if ! $docker_cmd; then
+        print_error "Docker installation failed"
+        exit 1
+    fi
+    
+    # Post-installation verification
+    if command_exists docker; then
+        print_status "Docker installed successfully"
+        docker --version
+    else
+        print_error "Docker installation verification failed"
+        exit 1
+    fi
+    
+    # Service management
+    manage_docker_service
     
     # Clean up
     rm -f /tmp/install-docker.sh
     
     print_status "Docker installed and started successfully"
+    if [[ "$ROOT_MODE" != "true" ]]; then
+        print_warning "You may need to log out and log back in for group changes to take effect"
+    fi
 }
 
 # Function to get Mumble configuration
