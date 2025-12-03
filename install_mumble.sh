@@ -242,7 +242,18 @@ get_supw_from_container() {
     print_status "Waiting for SuperUser password generation..."
     
     while [[ $attempt -lt $max_attempts ]]; do
-        supw=$(docker logs mumble-server 2>&1 | grep -o "SuperUser password is '[^']*'" | grep -o "'[^']*'" | tr -d "'" || echo "")
+        # Try multiple patterns to extract password
+        supw=$(docker logs mumble-server 2>&1 | grep -i "SuperUser" | grep -o "'[^']*'" | head -1 | tr -d "'" || echo "")
+        
+        # Alternative pattern if first one fails
+        if [[ -z "$supw" ]]; then
+            supw=$(docker logs mumble-server 2>&1 | grep -i "password.*SuperUser\|SuperUser.*password" | grep -o "'[^']*'" | head -1 | tr -d "'" || echo "")
+        fi
+        
+        # Another alternative pattern
+        if [[ -z "$supw" ]]; then
+            supw=$(docker logs mumble-server 2>&1 | grep -i "set to" | grep -o "'[^']*'" | head -1 | tr -d "'" || echo "")
+        fi
         
         if [[ -n "$supw" ]]; then
             echo "$supw"
@@ -256,7 +267,7 @@ get_supw_from_container() {
     
     echo ""
     print_warning "Could not retrieve SuperUser password automatically."
-    print_warning "You can find it in the container logs with: docker logs mumble-server"
+    print_warning "You can find it in the container logs with: docker logs mumble-server | grep -i SuperUser"
     return 1
 }
 
