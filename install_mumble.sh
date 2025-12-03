@@ -340,14 +340,18 @@ install_essential_packages() {
         packages="$packages ca-certificates"
         # Add apt-transport-https for repository management
         packages="$packages apt-transport-https"
+        # Add UFW firewall
+        packages="$packages ufw"
     elif [[ "$distro_id" == "ubuntu" ]]; then
         # Ubuntu-specific packages
         packages="$packages software-properties-common"
         packages="$packages ca-certificates"
         packages="$packages apt-transport-https"
+        # Add UFW firewall
+        packages="$packages ufw"
     else
         # Default/fallback
-        packages="$packages software-properties-common ca-certificates apt-transport-https"
+        packages="$packages software-properties-common ca-certificates apt-transport-https ufw"
     fi
     
     print_status "Installing essential packages: $packages"
