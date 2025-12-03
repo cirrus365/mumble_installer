@@ -31,9 +31,32 @@ print_header() {
     echo -e "${BLUE}=== $1 ===${NC}"
 }
 
+# Function to install essential packages (early version for root mode)
+install_essential_packages_early() {
+    # Only run as root and only if packages are missing
+    if [[ $EUID -eq 0 ]]; then
+        # Update package lists
+        apt-get update >/dev/null 2>&1
+        
+        # Install essential packages that might be missing
+        local packages="sudo"
+        if ! command -v sudo >/dev/null 2>&1; then
+            print_status "Installing sudo (required for user management)..."
+            if ! apt-get install -y $packages >/dev/null 2>&1; then
+                print_error "Failed to install sudo"
+                exit 1
+            fi
+            print_status "sudo installed successfully"
+        fi
+    fi
+}
+
 # Function to check if running as root and handle user creation
 check_root() {
     if [[ $EUID -eq 0 ]]; then
+        # Install essential packages first (especially sudo)
+        install_essential_packages_early
+        
         print_warning "Script is running as root."
         print_warning "For security reasons, we should create a normal user."
         echo
@@ -108,7 +131,7 @@ create_user_and_sudo() {
     # Configure sudo
     print_status "Configuring sudo access for $NEW_USERNAME..."
     
-    # Sudo should already be installed by install_essential_packages
+    # Sudo should already be installed by install_essential_packages_early
     if ! command -v sudo >/dev/null 2>&1; then
         print_error "Sudo not found after installation attempt"
         exit 1
