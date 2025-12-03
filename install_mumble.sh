@@ -634,10 +634,10 @@ manage_docker_service() {
     fi
 }
 
-# Function to install Docker with enhanced error handling
+# Function to install Docker
 install_docker() {
     print_header "Installing Docker"
-    
+
     if command_exists docker; then
         print_warning "Docker is already installed."
         read -p "Do you want to reinstall/upgrade Docker? (y/N): " -n 1 -r
@@ -647,68 +647,66 @@ install_docker() {
             return
         fi
     fi
-    
+
     # Curl should already be installed by install_essential_packages
     if ! command_exists curl; then
         print_error "Curl not found after essential packages installation"
         exit 1
     fi
-    
-    # Pre-installation checks
-    test_connectivity
-    local connectivity_result=$?
-    
-    diagnose_ssl_issues
-    local ssl_result=$?
-    
-    detect_proxy
-    
-    # Update SSL certificates if needed
-    update_ssl_certificates
-    
-    # Download installer with fallback methods
-    if ! download_docker_installer; then
-        print_error "All download methods failed"
-        print_error "Please check:"
-        print_error "1. Internet connection"
-        print_error "2. Firewall/proxy settings"
-        print_error "3. SSL certificate issues"
-        print_error "4. Try downloading manually: https://get.docker.com"
+
+    print_status "Downloading Docker installation script..."
+    if ! curl -fsSL https://get.docker.com -o /tmp/install-docker.sh; then
+        print_error "Failed to download Docker installation script"
         exit 1
     fi
-    
-    # Install Docker with error handling
+
     print_status "Installing Docker..."
     local docker_cmd="sudo sh /tmp/install-docker.sh"
     if [[ "$ROOT_MODE" == "true" ]]; then
         docker_cmd="sh /tmp/install-docker.sh"
     fi
-    
+
     if ! $docker_cmd; then
         print_error "Docker installation failed"
         exit 1
     fi
-    
-    # Post-installation verification
-    if command_exists docker; then
-        print_status "Docker installed successfully"
-        docker --version
-    else
-        print_error "Docker installation verification failed"
+
+    # Enable and start Docker service
+    print_status "Enabling and starting Docker service..."
+    local systemctl_cmd="sudo systemctl"
+    if [[ "$ROOT_MODE" == "true" ]]; then
+        systemctl_cmd="systemctl"
+    fi
+
+    # Enable Docker to start on boot
+    if ! $systemctl_cmd enable docker >/dev/null 2>&1; then
+        print_error "Failed to enable Docker service"
         exit 1
     fi
-    
-    # Service management
-    manage_docker_service
-    
+
+    # Start Docker service if not running
+    if ! $systemctl_cmd is-active --quiet docker; then
+        if ! $systemctl_cmd start docker >/dev/null 2>&1; then
+            print_error "Failed to start Docker service"
+            exit 1
+        fi
+    fi
+
+    # Verify Docker is running
+    if ! $systemctl_cmd is-active --quiet docker; then
+        print_error "Docker service is not running after installation"
+        exit 1
+    fi
+
     # Clean up
     rm -f /tmp/install-docker.sh
-    
+
     print_status "Docker installed and started successfully"
     if [[ "$ROOT_MODE" != "true" ]]; then
         print_warning "You may need to log out and log back in for group changes to take effect"
     fi
 }
+# Function to install Docker with enhanced error handling
 
 # Function to get Mumble configuration
 get_mumble_config() {
