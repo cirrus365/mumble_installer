@@ -202,6 +202,7 @@ if ask_yes_no "Do you want to set a server password?" "N"; then
     server_password=$(ask_input "Enter server password" "")
     update_config "serverpassword" "\"$server_password\""
 else
+    server_password=""
     update_config "serverpassword" ""
 fi
 
@@ -286,24 +287,13 @@ if ask_yes_no "Register server with public Mumble server list?" "N"; then
     fi
 fi
 
-# Restart service to apply changes
-print_status "Restarting Mumble server to apply configuration changes..."
-systemctl restart mumble-server
-
-# Verify service is running
-if systemctl is-active --quiet mumble-server; then
-    print_status "Mumble server is running successfully with new configuration"
-else
-    print_error "Mumble server failed to start. Check logs with: journalctl -u mumble-server"
-fi
-
 # Display completion message
 echo ""
 echo -e "${GREEN}========================================${NC}"
 echo -e "${GREEN}    Mumble Server Installation Complete!${NC}"
 echo -e "${GREEN}========================================${NC}"
 echo ""
-print_status "Mumble server is now running and configured with your settings."
+print_status "Mumble server configuration has been updated."
 echo ""
 echo -e "${YELLOW}Configuration Summary:${NC}"
 echo "  Server Name: $server_name"
@@ -333,5 +323,28 @@ echo -e "${YELLOW}Configuration Backup:${NC}"
 echo "Your original configuration has been backed up."
 echo "Check /etc/mumble-server.ini.backup.* for backup files."
 echo ""
-print_status "Installation script completed successfully!"
+
+# Final restart to apply all configuration changes
+print_status "Restarting Mumble server to apply all configuration changes..."
+systemctl restart mumble-server
+
+# Wait a moment for service to start
+sleep 2
+
+# Verify service is running
+if systemctl is-active --quiet mumble-server; then
+    print_status "Mumble server is running successfully with new configuration!"
+    echo ""
+    echo -e "${GREEN}========================================${NC}"
+    echo -e "${GREEN}   Server is ready for connections!${NC}"
+    echo -e "${GREEN}========================================${NC}"
+else
+    print_error "Mumble server failed to start. Check logs with: journalctl -u mumble-server -xe"
+    echo ""
+    echo "Configuration file location: /etc/mumble-server.ini"
+    exit 1
+fi
+
+echo ""
+print_status "Installation and configuration script completed successfully!"
 echo ""
