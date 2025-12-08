@@ -95,30 +95,66 @@ ask_number() {
     done
 }
 
+# Function to detect the correct config file location
+detect_config_file() {
+    local config_file=""
+    
+    # Check systemd service file for the actual config path
+    if [[ -f /lib/systemd/system/mumble-server.service ]] || [[ -f /usr/lib/systemd/system/mumble-server.service ]]; then
+        local service_file=""
+        if [[ -f /lib/systemd/system/mumble-server.service ]]; then
+            service_file="/lib/systemd/system/mumble-server.service"
+        else
+            service_file="/usr/lib/systemd/system/mumble-server.service"
+        fi
+        
+        # Extract config path from ExecStart line
+        config_file=$(grep "ExecStart=" "$service_file" | grep -oP '(?<=-ini )[^ ]+' || true)
+    fi
+    
+    # Fallback: check common locations
+    if [[ -z "$config_file" ]] || [[ ! -f "$config_file" ]]; then
+        if [[ -f /etc/mumble/mumble-server.ini ]]; then
+            config_file="/etc/mumble/mumble-server.ini"
+        elif [[ -f /etc/mumble-server.ini ]]; then
+            config_file="/etc/mumble-server.ini"
+        elif [[ -f /etc/murmur/murmur.ini ]]; then
+            config_file="/etc/murmur/murmur.ini"
+        fi
+    fi
+    
+    echo "$config_file"
+}
+
 # Function to update configuration file
 update_config() {
     local key="$1"
     local value="$2"
-    local config_file="/etc/mumble-server.ini"
     
-    if grep -q "^${key}=" "$config_file"; then
-        sed -i "s|^${key}=.*|${key}=${value}|" "$config_file"
-    elif grep -q "^#${key}=" "$config_file"; then
-        sed -i "s|^#${key}=.*|${key}=${value}|" "$config_file"
+    if [[ -z "$CONFIG_FILE" ]] || [[ ! -f "$CONFIG_FILE" ]]; then
+        print_error "Configuration file not found: $CONFIG_FILE"
+        return 1
+    fi
+    
+    if grep -q "^${key}=" "$CONFIG_FILE"; then
+        sed -i "s|^${key}=.*|${key}=${value}|" "$CONFIG_FILE"
+    elif grep -q "^#${key}=" "$CONFIG_FILE"; then
+        sed -i "s|^#${key}=.*|${key}=${value}|" "$CONFIG_FILE"
     else
-        echo "${key}=${value}" >> "$config_file"
+        echo "${key}=${value}" >> "$CONFIG_FILE"
     fi
 }
 
 # Function to backup configuration file
 backup_config() {
-    local config_file="/etc/mumble-server.ini"
-    local backup_file="/etc/mumble-server.ini.backup.$(date +%Y%m%d_%H%M%S)"
-    
-    if [[ -f "$config_file" ]]; then
-        cp "$config_file" "$backup_file"
-        print_status "Configuration backed up to: $backup_file"
+    if [[ -z "$CONFIG_FILE" ]] || [[ ! -f "$CONFIG_FILE" ]]; then
+        print_warning "Configuration file not found, skipping backup"
+        return 1
     fi
+    
+    local backup_file="${CONFIG_FILE}.backup.$(date +%Y%m%d_%H%M%S)"
+    cp "$CONFIG_FILE" "$backup_file"
+    print_status "Configuration backed up to: $backup_file"
 }
 
 # Check if script is run as root
@@ -171,6 +207,22 @@ print_status "Firewall configuration completed."
 # Install Mumble server
 print_status "Installing Mumble server..."
 apt install -y mumble-server
+
+# Detect configuration file location
+print_status "Detecting configuration file location..."
+CONFIG_FILE=$(detect_config_file)
+
+if [[ -z "$CONFIG_FILE" ]] || [[ ! -f "$CONFIG_FILE" ]]; then
+    print_error "Could not detect Mumble configuration file location!"
+    print_error "Please check if Mumble server was installed correctly."
+    print_warning "Common locations are:"
+    echo "  - /etc/mumble/mumble-server.ini"
+    echo "  - /etc/mumble-server.ini"
+    echo "  - /etc/murmur/murmur.ini"
+    exit 1
+fi
+
+print_status "Using configuration file: $CONFIG_FILE"
 
 # Configure Mumble server interactively
 print_status "Launching Mumble server configuration..."
@@ -311,7 +363,7 @@ echo "  Default SuperUser: SuperUser (password set during dpkg-reconfigure)"
 echo ""
 echo -e "${YELLOW}Advanced Configuration:${NC}"
 echo "For advanced configuration options, edit:"
-echo "  sudo nano /etc/mumble-server.ini"
+echo "  sudo nano $CONFIG_FILE"
 echo ""
 echo -e "${YELLOW}Useful Commands:${NC}"
 echo "  Check status: sudo systemctl status mumble-server"
@@ -321,7 +373,7 @@ echo "  View logs:   sudo journalctl -u mumble-server -f"
 echo ""
 echo -e "${YELLOW}Configuration Backup:${NC}"
 echo "Your original configuration has been backed up."
-echo "Check /etc/mumble-server.ini.backup.* for backup files."
+echo "Check ${CONFIG_FILE}.backup.* for backup files."
 echo ""
 
 # Final restart to apply all configuration changes
@@ -341,7 +393,7 @@ if systemctl is-active --quiet mumble-server; then
 else
     print_error "Mumble server failed to start. Check logs with: journalctl -u mumble-server -xe"
     echo ""
-    echo "Configuration file location: /etc/mumble-server.ini"
+    echo "Configuration file location: $CONFIG_FILE"
     exit 1
 fi
 
